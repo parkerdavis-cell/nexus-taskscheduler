@@ -1,0 +1,297 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Workspace {
+  id         String   @id @default(cuid())
+  name       String
+  slug       String   @unique
+  color      String
+  icon       String
+  sortOrder  Int      @default(0)
+  isArchived Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tasks    Task[]
+  goals    Goal[]
+  contacts Contact[]
+}
+
+model Goal {
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  targetDate   DateTime?
+  status       String    @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, PAUSED
+  progressType String    @default("TASK_COUNT")   // TASK_COUNT, PERCENTAGE, CUSTOM
+  targetValue  Int       @default(100)
+  currentValue Int       @default(0)
+  priority     String    @default("MEDIUM")       // HIGH, MEDIUM, LOW
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  tasks      Task[]
+  milestones Milestone[]
+  checkIns   GoalCheckIn[]
+
+  @@index([workspaceId])
+}
+
+model Milestone {
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  targetDate   DateTime?
+  isCompleted  Boolean   @default(false)
+  completedAt  DateTime?
+  sortOrder    Int       @default(0)
+  targetValue  Int?                              // when set, milestone is a key result
+  currentValue Int       @default(0)
+  unit         String?                           // display unit ("users", "$", "%")
+  createdAt    DateTime  @default(now())
+
+  goalId String
+  goal   Goal   @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId])
+}
+
+model GoalCheckIn {
+  id        String   @id @default(cuid())
+  value     Int
+  note      String?
+  createdAt DateTime @default(now())
+
+  goalId String
+  goal   Goal   @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId, createdAt])
+}
+
+model Schedule {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  windows ScheduleWindow[]
+  tasks   Task[]
+}
+
+model ScheduleWindow {
+  id        String @id @default(cuid())
+  dayOfWeek Int    // 0=Sunday, 1=Monday ... 6=Saturday
+  startTime String // "HH:MM"
+  endTime   String // "HH:MM"
+
+  scheduleId String
+  schedule   Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId])
+  @@index([dayOfWeek])
+}
+
+model Task {
+  id            String    @id @default(cuid())
+  title         String
+  description   String?
+  status        String    @default("TODO")    // TODO, IN_PROGRESS, REVIEW, BLOCKED, DONE, ARCHIVED
+  priority      String    @default("MEDIUM")  // URGENT, HIGH, MEDIUM, LOW, BACKLOG
+  sortOrder     Int       @default(0)
+  dueDate       DateTime?
+  estimatedMins Int?
+  completedAt   DateTime?
+  agentBrief    String?
+  createdBy     String    @default("user")    // "user" or "agent"
+  assignee      String    @default("user")    // "user" or "agent"
+  minChunkMins  Int?                          // min chunk size for auto-scheduling
+  isHardDeadline Boolean  @default(false)     // overrides schedule to meet deadline
+  autoSchedule  Boolean   @default(true)      // opt in/out of auto-scheduling
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  goalId String?
+  goal   Goal?   @relation(fields: [goalId], references: [id], onDelete: SetNull)
+
+  scheduleId String?
+  schedule   Schedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  activities TaskActivity[]
+  taskTags   TaskTag[]
+  timeBlocks TimeBlock[]
+
+  @@index([workspaceId, status])
+  @@index([dueDate])
+  @@index([status, priority])
+  @@index([deletedAt])
+  @@index([goalId])
+  @@index([scheduleId])
+}
+
+model TaskActivity {
+  id        String   @id @default(cuid())
+  type      String   @default("COMMENT") // COMMENT, STATUS_CHANGE, NOTE, SYSTEM, ASSIGNMENT
+  content   String
+  author    String   @default("user")    // "user" or "agent"
+  metadata  String?  // JSON string
+  createdAt DateTime @default(now())
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+}
+
+model Tag {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  color    String?
+  taskTags TaskTag[]
+}
+
+model TaskTag {
+  taskId String
+  tagId  String
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+}
+
+model TimeBlock {
+  id              String   @id @default(cuid())
+  date            DateTime
+  startTime       String   // "HH:MM"
+  endTime         String   // "HH:MM"
+  status          String   @default("PLANNED") // PLANNED, IN_PROGRESS, COMPLETED, SKIPPED
+  title           String?
+  description     String?
+  color           String?
+  createdBy       String   @default("user")
+  sortOrder       Int      @default(0)
+  isAutoScheduled Boolean  @default(false)
+  chunkIndex      Int?     // for chunked tasks: which chunk (0-based)
+  chunkTotal      Int?     // for chunked tasks: total chunks
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  taskId String?
+  task   Task?   @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([date])
+  @@index([date, startTime])
+  @@index([taskId])
+}
+
+model CalendarEvent {
+  id          String   @id @default(cuid())
+  externalId  String   @unique
+  title       String
+  description String?
+  location    String?
+  startTime   DateTime
+  endTime     DateTime
+  isAllDay    Boolean  @default(false)
+  busyStatus  String   @default("BUSY") // BUSY, FREE, TENTATIVE
+  calendarUrl String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([startTime, endTime])
+}
+
+model CalendarFeed {
+  id         String    @id @default(cuid())
+  name       String
+  url        String
+  color      String?
+  isActive   Boolean   @default(true)
+  lastSynced DateTime?
+  syncError  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Setting {
+  key       String   @id
+  value     String   // JSON string
+  updatedAt DateTime @updatedAt
+}
+
+model AgentWorkflow {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  steps       AgentWorkflowStep[]
+}
+
+model AgentWorkflowStep {
+  id          String   @id @default(cuid())
+  workflowId  String
+  workflow    AgentWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  sortOrder   Int
+  title       String
+  stepType    String   @default("instruction") // "instruction" | "mcp_tool" | "bash"
+  instruction String
+  toolName    String?
+  toolParams  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([workflowId])
+}
+
+model Contact {
+  id          String   @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  company     String?
+  role        String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+}
+
+model AgentChat {
+  id        String         @id @default(cuid())
+  title     String         @default("New Chat")
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  messages  AgentMessage[]
+}
+
+model AgentMessage {
+  id        String    @id @default(cuid())
+  role      String    // "user" | "assistant" | "system"
+  content   String
+  createdAt DateTime  @default(now())
+
+  chatId String
+  chat   AgentChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+}
